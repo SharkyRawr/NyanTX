@@ -14,6 +14,9 @@ import (
 	"github.com/btcsuite/btcd/wire"
 
 	"github.com/schumann2k/jsoncfg"
+
+	// For profiling:
+	// _ "net/http/pprof"
 )
 
 const (
@@ -86,7 +89,7 @@ func listenForTx(conn net.Conn) {
 
 		case *wire.MsgInv:
 			{
-				log.Printf("Inventory received, requesting %d entries ...\n", len(msg.InvList))
+				log.Printf("Inventory received, requesting %d blocks ...\n", len(msg.InvList))
 
 				getdata := wire.NewMsgGetData()
 				for _, v := range msg.InvList {
@@ -101,6 +104,7 @@ func listenForTx(conn net.Conn) {
 
 		case *wire.MsgGetData:
 			{
+				// We don't serve any blocks ourselfs
 				notfound := wire.NewMsgNotFound()
 				wire.WriteMessage(conn, notfound, pver, btcnet)
 			}
@@ -109,6 +113,7 @@ func listenForTx(conn net.Conn) {
 			{
 				var blockValue uint64
 
+				// Sum up all the transaction outputs
 				for _, tx := range msg.Transactions {
 					//log.Printf(" - %d in, %d out\n", len(tx.TxIn), len(tx.TxOut))
 					for _, txout := range tx.TxOut {
@@ -116,28 +121,36 @@ func listenForTx(conn net.Conn) {
 					}
 				}
 
+				// Get the block value in NYAN
 				blockValueInNyan := float64(blockValue) / float64(100000000.0)
 				log.Printf("Got Block Value: %.8f\n", blockValueInNyan)
 
 				if msg.Header.Timestamp.Before(lastBlock.TS) {
+					// ignore this block if it is older than the newest we've seen
 					continue
 				}
 
-				nb := nyanBlock{
-					Hash:  msg.BlockSha().String(),
-					Value: blockValueInNyan,
-					TS:    msg.Header.Timestamp,
-					NumTx: len(msg.Transactions),
-				}
-				lastBlock = nb
 				{
-					localcfg, err := jsoncfg.OpenOrCreate("lastblock.json")
-					fatalerr(err)
-					localcfg.Set("lastblock", lastBlock)
-					err = localcfg.Save()
-					fatalerr(err)
+					// Send out a block update
+					nb := nyanBlock{
+						Hash:  msg.BlockSha().String(),
+						Value: blockValueInNyan,
+						TS:    msg.Header.Timestamp,
+						NumTx: len(msg.Transactions),
+					}
+					lastBlock = nb
+
+					{
+						// Write lastBlock state file
+						localcfg, err := jsoncfg.OpenOrCreate("lastblock.json")
+						fatalerr(err)
+						localcfg.Set("lastblock", lastBlock)
+						err = localcfg.Save()
+						fatalerr(err)
+					}
+
+					blockBroadcast.Send(nb)
 				}
-				blockBroadcast.Send(nb)
 			}
 
 		default:
@@ -152,13 +165,13 @@ func handleWebSocketClient(ws *websocket.Conn) {
 	l := blockBroadcast.Listen()
 	defer l.Close()
 
-	log.Printf("WebSocket from %s has connected.\n", ws.RemoteAddr().String())
+	log.Printf("WebSocket via %s has connected.\n", ws.RemoteAddr().String())
 
 	// Send lastBlock
 	{
 		data, err := json.Marshal(lastBlock)
 		if err != nil {
-			log.Printf("Unable to marshal block to json: %s\n", err.Error())
+			log.Printf("Unable to marshal lastBlock to json: %s\n", err.Error())
 		} else {
 			ws.Write(data)
 		}
@@ -167,7 +180,7 @@ func handleWebSocketClient(ws *websocket.Conn) {
 	// Send live broadcasts
 	for v := range l.Ch {
 		block := v.(nyanBlock)
-		log.Printf("Notifying webclient of block %s ...\n", block.Hash)
+		log.Printf("Notifying WebSocket of block %s ...\n", block.Hash)
 
 		data, err := json.Marshal(block)
 		if err != nil {
@@ -175,6 +188,7 @@ func handleWebSocketClient(ws *websocket.Conn) {
 		} else {
 			_, err := ws.Write(data)
 			if err != nil {
+				// Client probably disconnected
 				log.Printf("Unable to write to WebSocket, closing.\n")
 				ws.Close()
 				break
@@ -197,6 +211,11 @@ func webSocketListener() {
 
 func main() {
 	log.Println("Hello Nekonauts!")
+
+	// For profiling
+	/*go func() {
+		log.Printf("Profiling error: %s\n", http.ListenAndServe("127.0.0.1:6060", nil).Error())
+	}()*/
 
 	log.Printf("Trying to revert to last saved state ...\n")
 	cfg, err := jsoncfg.OpenOrCreate("nyantx.json")
