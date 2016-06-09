@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta charset="UTF-8">
+	<style>
+	html, body {
+		width:100%;
+		height:100%;
+		margin: 0;
+		padding: 0;
+		overflow:hidden;
+		background: url(nyan_cat_background_by_kento1-d3l6i50.jpg) repeat;
+	}
+		.txcat {
+			position:absolute;
+			background: url(logo.gif) center center no-repeat;
+			background-size: 100% 100%;
+		}
+		.txcat > .txdetails {
+			position: relative;
+			width:50%;
+			overflow:hidden;
+			left: 30%;
+			top: 32%;
+			background-color: rgba(192, 192, 192, 0.85);
+			border-radius: 4px 4px 2px;
+			text-align: center;
+		}
+	</style>
+	<script src="fuzzytime.js" type="application/javascript" charset="utf-8"></script>
+</head>
+
+<body>
+
+<textarea id="log" rows="5" cols="100" style="position:absolute;width:60%;bottom:0;right:0;">
+</textarea>
+
+<!--<div class="txcat" style="width:200px;height:140px;">
+	<div class="txdetails">
+		337 NYAN<br>
+		Block 3d7f52a
+	</div>
+</div>-->
+
+<script type="text/javascript">
+
+function requestFrame(fn) {
+	//setTimeout(fn, 1000.0/24.0);
+	window.requestAnimationFrame(fn);
+}
+
+function createCat(parms) {
+	var value = parms.Value;
+	var block = parms.Hash;
+	console.log("Creating cat with value", value, "and block", block);
+	var container = document.createElement('div');
+
+	// Calculate size of cat
+	var width = (Math.log(value) * 44); // Magic, do not touch
+	//console.log(width);
+	if (width > 800) width = 800;
+	if(width < 100) width = 100;
+
+	var height = Math.round(width / 1.428571428571429);
+	var speed = Math.random() % 1 + 0.5;
+
+
+	/*var height = (value * 1.662)
+	if (height > 420) height = 420;*/
+
+	container.style.width = width + "px";
+	container.style.height = height + "px";
+	container.style.left = width * -1 + "px";
+	container.style.zIndex = Math.floor(value);
+	container.className = "txcat";
+
+	var details = document.createElement('div');
+	var detailHeight = height / 3;
+	var fonz = height / 15;
+	if(fonz < 12) fonz = 12; // 'eeeeey ;)
+	details.className = "txdetails";
+	details.style.top = detailHeight + "px";
+	details.style.fontSize = fonz;
+	details.innerHTML = value + ' NYAN<br>'+ fuzzyTime(Date.parse(parms.TS)) +'<br><small>Block <a href="https://nyan.space/block/' + block + '">' + block.slice(0, 6) + "</a></small>";
+	container.appendChild(details);
+
+	document.body.appendChild(container);
+
+
+	var posX = width * -1;
+	var posY = Math.floor((Math.random() * (window.innerHeight - height)));
+	container.style.top = posY + "px";
+	var think = function() {
+		posX += speed;
+		container.style.left = posX + "px";
+		if (posX > window.innerWidth /*|| posY + height > window.innerHeight*/) {
+			// die off
+			console.log("Removing cat with value", value, "and block", block);
+			document.body.removeChild(container);
+		} else {
+			requestFrame(think);
+		}
+	}
+	requestFrame(think);
+}
+</script>
+
+<script>
+(function() {
+		var log = document.getElementById('log');
+
+		function addlog(msg) {
+			log.value += msg + "\n";
+			log.scrollTop = 999999;
+		}
+
+		function handleError(evt, msg) {
+			console.warn("WebSocket error:", evt);
+			addlog(log.value += "WebSocket error!\n");
+		}
+
+		function handleClose(evt) {
+			console.warn("ws closed:", evt.reason)
+			addlog("ws closed:" + evt.reason + "\nTrying to reconnect but you may need to reload this page ...");
+			setTimeout(function() {
+				openWebSocket();
+			}, 5000)
+		}
+
+		function handleMessage(msg) {
+			var data = msg.data;
+
+			var msg = JSON.parse(data);
+			console.log(msg);
+			createCat(msg);
+		}
+
+		function openWebSocket() {
+			addlog("Trying to connect ...");
+			var ws = new WebSocket("ws://localhost:18337/blocks");
+			ws.onerror = handleError;
+			ws.onclose = handleClose;
+
+			ws.onopen = function() {
+				ws.send("howdy");
+				addlog("WebSocket connection established! :3")
+			};
+
+			ws.onmessage = handleMessage;
+		}
+	openWebSocket();
+})();
+
+</script>
+</body>
+</html>
